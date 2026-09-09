@@ -8,8 +8,8 @@ public record Transaction(
         BigDecimal amount,
         TransactionCustomer transactionCustomerOrigin,
         TransactionCustomer transactionCustomerRecipient,
-        int isFraud,
-        int isFlaggedFraud
+        boolean isFraud,
+        boolean isFlaggedFraud
         ) {
 
 
