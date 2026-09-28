@@ -30,10 +30,10 @@ public class Main {
         System.out.println("Imprimindo transação 1: " + transaction1);
         System.out.println("Imprimindo transação 2: " + transaction2);
 
-        IO.println("-------------------------------------------------");
+        IO.println("----------Usando a classe TransactionIngestor---------------------------------------");
 
         TransactionIngestor transactionIngestor = new TransactionIngestor();
-        List<Transaction> transactions = transactionIngestor.readTransactions("/home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/data/PS_20174392719_1491204439457_log.csv");
+        List<Transaction> transactions = transactionIngestor.readTransactionsNew("/home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/data/PS_20174392719_1491204439457_log.csv");
         IO.println(transactions.size());
 
         transactions.stream()

@@ -11,11 +11,12 @@ import java.util.Scanner;
 
 public class TransactionIngestor {
 
+    /* Maneira nova de escrever codigo, mais enxuto, estamos usadno stream  */
     public List<Transaction> readTransactionsNew(String fileName) {
         Path path = Paths.get(fileName);
 
         try {
-            List<String> lines = Files.readAllLines(path);
+            List<String> lines = Files.readAllLines(path); //Retorna uma lista de linhas
             return lines.stream()
                     .skip(1)
                     .limit(1000)
@@ -26,9 +27,10 @@ public class TransactionIngestor {
         }
     }
 
-    public List<Transaction> readTransactions(String filename) {
+    /* Maneira antiga de implementar o metodo abaixo, usando FileInputStream, Scanner  */
+    public List<Transaction> readTransactionsOld(String filename) {
 
-        List<Transaction> transactions = new ArrayList<>();
+        List<Transaction> transactions = new ArrayList<>();  // Criando a Lista de transações
 
         try (FileInputStream fis = new FileInputStream(filename)) {
             Scanner scanner = new Scanner(fis);
@@ -62,6 +64,7 @@ public class TransactionIngestor {
         return transactions;
     }
 
+    /*Metodo que separa cada posiçao do arquivo que esta sendo lido */
     private Transaction parseTransaction(String line) {
         String[] chunks = line.split(",");
         int step = Integer.parseInt(chunks[0]);
