@@ -16,6 +16,8 @@ import java.util.*;
  */
 public class TransactionIngestor {
 
+    public static final int FRAUDE_LIMIT = 50_000;
+
     /**
      * Abordagem moderna e funcional utilizando Java NIO (Files/Paths) e Stream API.
      * 
@@ -33,11 +35,13 @@ public class TransactionIngestor {
             // Files.readAllLines(path): lê todas as linhas do arquivo em memória e retorna uma List<String>
             List<String> lines = Files.readAllLines(path);
 
+
+
             return lines.stream()
                     // skip(1): descarta a primeira linha (cabeçalho com nomes das colunas: step, type, amount, ...)
                     .skip(1)
                     // limit(1000): restringe o processamento às primeiras 1000 linhas para ganho de performance em testes
-                    .limit(1000)
+                    .limit(FRAUDE_LIMIT)
                     // map(this::parseTransaction): aplica o método parseTransaction a cada linha, retornando Optional<Transaction>
                     .map(this::parseTransaction)
                     // filter(Optional::isPresent): descarta os Optionals vazios (linhas que geraram erro no parse)

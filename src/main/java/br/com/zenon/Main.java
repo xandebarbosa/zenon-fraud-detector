@@ -2,6 +2,7 @@ package br.com.zenon;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Classe principal (ponto de entrada da aplicação) utilizada para testar e exercitar
@@ -64,5 +65,38 @@ public class Main {
         );
         IO.println(transactionsBadData.size()); // Imprime a quantidade total de linhas válidas que foram aceitas
         transactionsBadData.forEach(IO::println); // Exibe cada registro válido aceito
+
+        IO.println("---------- Tarefa 5 - Streams  -------------------");
+
+        var fraudAnalyzer = new FraudAnalyzer(transactions);
+
+        //Apenas transações onde isFraud == true, imprima o tamanho da lista.
+        long fraudCont = fraudAnalyzer.countFrauds();
+        IO.println("1. Total de fraudes: " + fraudCont);
+
+        //Imprima as 3 fraudes de maior valor (amount).
+        List<BigDecimal> highestFraudsAmounts = fraudAnalyzer.findHighestValueFraudsAmounts(3);
+        IO.println("2. Top 3 Fraudes de Maior Valor: ");
+        highestFraudsAmounts.forEach(amount -> IO.println("- %.2f".formatted(amount)));
+
+        //Obter apenas os nomes dos clientes de origem (nameOrig) dessas fraudes e depois gere uma lista sem repetições (Set ou distinct) com os 5 maiores clientes suspeitos.
+        List<String> suspiciousClients = fraudAnalyzer.findTopSuspiciousClients(5);
+        IO.println("3. Clientes Suspeitos:");
+        suspiciousClients.forEach(IO::println);
+
+        //Calcule o prejuízo total causado pelas fraudes (soma dos amount).
+        BigDecimal totalFraudLoss = fraudAnalyzer.calculateTotalFraudsLoss();
+        IO.println("4. Prejuízo Total: " + totalFraudLoss);
+
+
+        //Conte quantas fraudes ocorreram por tipo de transação (CASH_OUT, TRANSFER, etc...).
+        Map<TransactionType, Long> fraudCountByType = fraudAnalyzer.countFraudsByType();
+        IO.println("5. Fraudes por Tipo: ");
+        fraudCountByType.forEach((type, count) -> IO.println("- %s: %d".formatted(type, count)) );
+        /*
+        * itera sobre um Map contendo a contagem de transações fraudulentas agrupadas por tipo de transação
+        * e imprime cada entrada no console em uma string formatada de forma clara.
+        * */
+
     }
 }
