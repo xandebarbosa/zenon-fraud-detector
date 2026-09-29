@@ -3,10 +3,17 @@ package br.com.zenon;
 import java.math.BigDecimal;
 import java.util.List;
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
+/**
+ * Classe principal (ponto de entrada da aplicação) utilizada para testar e exercitar
+ * os conceitos de modelagem com Records, Enums, Streams e tratamento de erros do sistema antifraude Zenon.
+ */
 public class Main {
+
+    /**
+     * Método principal (Main method no Java moderno 21+ com simplificação de declaração de métodos).
+     */
     static void main() {
+        // Criação manual de um objeto Transaction representando uma operação comum (PAYMENT, não fraudulenta)
         Transaction transaction1 = new Transaction(
                 1,
                 TransactionType.PAYMENT,
@@ -17,6 +24,7 @@ public class Main {
                 false
         );
 
+        // Criação manual de um objeto Transaction representando um caso de fraude real confirmada (isFraud = true)
         Transaction transaction2 = new Transaction(
                 743,
                 TransactionType.CASH_OUT,
@@ -27,17 +35,34 @@ public class Main {
                 false
         );
 
+        // O compilador do Java invoca automaticamente o método toString() gerado pelo Record para cada instância
         System.out.println("Imprimindo transação 1: " + transaction1);
         System.out.println("Imprimindo transação 2: " + transaction2);
 
-        IO.println("----------Usando a classe TransactionIngestor---------------------------------------");
+        IO.println("---------- Usando a classe TransactionIngestor---------------------------------------");
 
+        // Instancia o serviço de ingestão de arquivos CSV
         TransactionIngestor transactionIngestor = new TransactionIngestor();
-        List<Transaction> transactions = transactionIngestor.readTransactionsNew("/home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/data/PS_20174392719_1491204439457_log.csv");
-        IO.println(transactions.size());
 
+        // Processa o arquivo com dados reais do dataset PaySim (limitado a 1000 registros válidos)
+        List<Transaction> transactions = transactionIngestor.readTransactionsNew(
+                "/home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/data/PS_20174392719_1491204439457_log.csv"
+        );
+        IO.println(transactions.size()); // Imprime a quantidade de transações carregadas com sucesso
+
+        // Exibe no console as 10 primeiras transações através de uma Stream
         transactions.stream()
                 .limit(10)
                 .forEach(System.out::println);
+
+        IO.println("---------- Usando a classe TransactionIngestor2 com tratamento de erros-------------------");
+
+        // Processa o arquivo contendo intencionalmente anomalias e erros (steps <= 0, valores negativos, tipos inválidos, etc.)
+        // Demonstra como a aplicação resiste a falhas (resiliência) sem travar o processamento
+        List<Transaction> transactionsBadData = transactionIngestor.readTransactionsNew(
+                "/home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/data/paysim_with_bad_data.csv"
+        );
+        IO.println(transactionsBadData.size()); // Imprime a quantidade total de linhas válidas que foram aceitas
+        transactionsBadData.forEach(IO::println); // Exibe cada registro válido aceito
     }
 }
