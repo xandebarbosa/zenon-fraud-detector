@@ -189,7 +189,7 @@ public class Main {
         long endTimeList = System.nanoTime();
 
         // Converte o delta de nanossegundos para milissegundos dividindo por 1_000_000.0 (ponto flutuante)
-        IO.println("Tempo de busa - List (ms): " + (endTimeList - startTimeList) / 1_000_000.0 + " ms");
+        IO.println("Tempo de busca - List (ms): " + (endTimeList - startTimeList) / 1_000_000.0 + " ms");
 
         // --- SUBETAPA 6.2: Medição com Busca Indexada O(1) em Tabela Hash (Map) ---
         IO.println("---------- Busca com map - observe o tempo do retorno da pesquisa  -------------------");
@@ -206,6 +206,6 @@ public class Main {
         endTimeList = System.nanoTime();
 
         // Converte a duração de nanossegundos para milissegundos e exibe a drástica redução de tempo
-        IO.println("Tempo de busa - Map (ms): " + (endTimeList - startTimeList) / 1_000_000.0 + " ms");
+        IO.println("Tempo de busca - Map (ms): " + (endTimeList - startTimeList) / 1_000_000.0 + " ms");
     }
 }
