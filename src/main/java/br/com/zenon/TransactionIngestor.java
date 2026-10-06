@@ -36,7 +36,7 @@ public class TransactionIngestor {
      * de números grandes (neste caso, 100 mil registros), sem alterar o valor final compilado.</p>
      * <p>Tipo: {@code int}. Constante estática e pública ({@code public static final}).</p>
      */
-    public static final int FRAUDE_LIMIT = 100_000;
+    public static final int FRAUDE_LIMIT = 10_000;
 
     /**
      * Processa o arquivo CSV utilizando a abordagem moderna e funcional com Java NIO.2 e Stream API.
