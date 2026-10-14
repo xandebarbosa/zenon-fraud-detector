@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -31,10 +32,29 @@ import java.util.Optional;
  *   <li><b>Gerenciamento Seguro de Recursos:</b> Uso da estrutura {@code try-with-resources} (Java 7+) para fechar
  *       conexões, statements e result sets automaticamente, evitando vazamentos de recursos (resource leaks);</li>
  *   <li><b>Tradução de Exceções:</b> Captura de {@link SQLException} (checked exception) e relançamento como
- *       {@link RuntimeException} (unchecked exception) com encadeamento da causa original.</li>
+ *       {@link RuntimeException} (unchecked exception) com encadeamento da causa original;</li>
+ *   <li><b>Processamento em Lote (JDBC Batch Processing):</b> Agrupamento de instruções SQL em blocos para reduzir drasticamente
+ *       latência de rede e acessos a disco durante inserções volumosas;</li>
+ *   <li><b>Controle Transacional Explícito:</b> Desativação de {@code autoCommit} com controle manual de {@code commit()}
+ *       e {@code rollback()} para assegurar a propriedade de Atomicidade do padrão ACID.</li>
  * </ul>
  */
 public class TransactionSQLRepository implements TransactionRepository {
+
+    /**
+     * Tamanho padrão do lote (batch) para envio agrupado de instruções de inserção ao banco via JDBC.
+     *
+     * <p><b>Objetivo Educacional e de Engenharia de Dados:</b></p>
+     * O valor {@code 1_000} representa um ponto ideal de equilíbrio (trade-off) entre:
+     * <ul>
+     *   <li><b>Uso de Memória RAM na JVM:</b> Manter batches pequenos o suficiente para não consumir memória heap excessiva com statements pendentes;</li>
+     *   <li><b>Eficiência de Rede:</b> Enviar um número significativo de linhas em cada pacote de rede para amortizar a latência de transmissão;</li>
+     *   <li><b>Limites do MySQL:</b> Permanecer bem abaixo do limite de tamanho máximo de pacote (parâmetro {@code max_allowed_packet}) e
+     *       da janela de logs do mecanismo transacional (InnoDB redo/undo logs).</li>
+     * </ul>
+     * <p>Tipo: {@code int}. Constante estática e imutável ({@code public static final}).</p>
+     */
+    public static final int JDBC_BATCH_SIZE = 1_000;
 
     /**
      * Localiza a primeira transação associada a um cliente emissor específico no banco de dados.
@@ -178,6 +198,8 @@ public class TransactionSQLRepository implements TransactionRepository {
             ps.setBoolean(10, transaction.isFraud()); // 10. Indicador de fraude real confirmada
             ps.setBoolean(11, transaction.isFlaggedFraud()); // 11. Indicador de fraude sinalizada pelo sistema de heurística
 
+            IO.println("Salvando transação: " + transaction.step() + " / " + transaction.amount());
+
             // Executa a instrução INSERT no banco de dados MySQL
             ps.execute();
 
@@ -244,6 +266,128 @@ public class TransactionSQLRepository implements TransactionRepository {
         } catch (SQLException e) {
             // Relança a exceção de acesso aos dados como RuntimeException para simplificar o tratamento pelo chamador
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Persiste uma lista de transações em massa (Bulk / Batch Insert) no banco de dados com alto desempenho.
+     *
+     * <p><b>Propósito e Responsabilidade:</b></p>
+     * Salvar dezenas ou centenas de milhares de instâncias de {@link Transaction} de maneira eficiente,
+     * utilizando as capacidades nativas de <i>Batch Processing</i> do JDBC combinadas com controle
+     * manual de transação e commits periódicos.
+     *
+     * <p><b>Por que esta abordagem é ordens de grandeza mais rápida que {@link #save(Transaction)}?</b></p>
+     * <ol>
+     *   <li><b>Desativação do AutoCommit ({@code conn.setAutoCommit(false)}):</b>
+     *       Por padrão, o JDBC opera com autocommit ligado, o que força o MySQL a realizar uma operação
+     *       de gravação física em disco (<i>fsync</i> no transaction log) para CADA instrução individual.
+     *       Ao desativar o autocommit, agrupamos centenas de inserções em uma única transação, economizando
+     *       tempo de CPU e operações de I/O de disco.</li>
+     *   <li><b>JDBC Batching ({@link PreparedStatement#addBatch()} e {@link PreparedStatement#executeBatch()}):</b>
+     *       Em vez de enviar os parâmetros pela rede linha a linha, o driver JDBC armazena os valores na memória local.
+     *       Ao chamar {@code executeBatch()}, o lote acumulado é transmitido de uma vez só. Combinado com o parâmetro
+     *       {@code rewriteBatchedStatements=true} da {@link ConnectionFactory}, o MySQL Connector/J transforma as instruções
+     *       em um único comando {@code INSERT ... VALUES (...), (...)}, reduzindo drasticamente os <i>round-trips</i> de rede.</li>
+     *   <li><b>Despejo Periódico (Flush em lotes de {@link #JDBC_BATCH_SIZE}):</b>
+     *       Enviar dezenas de milhares de registros em um único lote gigantesco poderia estourar a memória heap da JVM
+     *       ou exceder o parâmetro {@code max_allowed_packet} do MySQL. Por isso, a cada {@code JDBC_BATCH_SIZE} (1.000)
+     *       registros adicionados, o lote atual é executado e comitado, liberando os buffers de memória.</li>
+     *   <li><b>Garantia de Atomicidade (Rollback):</b>
+     *       Caso qualquer registro cause falha durante a execução do batch, o bloco {@code catch} invoca
+     *       {@link Connection#rollback()}, desfazendo as alterações pendentes daquele lote e garantindo que
+     *       dados inconsistentes ou pela metade não permaneçam no banco de dados.</li>
+     * </ol>
+     *
+     * @param transactions Lista de objetos {@link Transaction} a serem inseridos no banco. Tipo: {@link List}.
+     * @throws RuntimeException Caso ocorra qualquer falha durante a conexão, execução em lote ou execução do rollback.
+     */
+    public void saveAll(List<Transaction> transactions) {
+
+        // sql: Comando SQL INSERT parametrizado com os 11 campos da tabela transactions
+        String sql = """
+        insert into transactions
+        (step, `type`, amount, name_origin , old_balance_origin , new_balance_origin, name_recipient , old_balance_recipient , new_balance_recipient , is_fraud , is_flagged_fraud  )
+        values (?,?,?,?,?,?,?,?,?,?,?);
+        """;
+
+        // Abre a conexão física com o banco de dados dentro do try-with-resources para fechamento automático
+        try (Connection conn = ConnectionFactory.getConnection()) {
+            // Desativa a confirmação automática de transação (auto-commit).
+            // Isso permite que múltiplos comandos INSERT pertençam a uma mesma transação lógica,
+            // evitando que o banco de dados sincronize com o disco a cada linha inserida.
+            conn.setAutoCommit(false);
+
+            // count: Variável inteira usada como contador de iterações para controlar o tamanho de cada lote despachado.
+            int count = 0;
+
+            // Prepara a instrução SQL parametrizada dentro de um try-with-resources para garantir seu fechamento
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+
+                // Percorre iterativamente cada transação da lista recebida
+                for (Transaction transaction : transactions) {
+
+                    // Vincula os valores de cada atributo aos seus respectivos placeholders posicionais (1 a 11):
+                    ps.setInt(1, transaction.step()); // 1. Passo temporal
+                    ps.setString(2, transaction.type().name()); // 2. Tipo da transação em texto
+                    ps.setBigDecimal(3, transaction.amount()); // 3. Valor monetário preciso
+
+                    ps.setString(4, transaction.transactionCustomerOrigin().name()); // 4. Cliente de origem
+                    ps.setBigDecimal(5, transaction.transactionCustomerOrigin().oldBalance()); // 5. Saldo anterior da origem
+                    ps.setBigDecimal(6, transaction.transactionCustomerOrigin().newBalance()); // 6. Novo saldo da origem
+
+                    ps.setString(7, transaction.transactionCustomerRecipient().name()); // 7. Cliente de destino
+                    ps.setBigDecimal(8, transaction.transactionCustomerRecipient().oldBalance()); // 8. Saldo anterior do destino
+                    ps.setBigDecimal(9, transaction.transactionCustomerRecipient().newBalance()); // 9. Novo saldo do destino
+
+                    ps.setBoolean(10, transaction.isFraud()); // 10. Flag booleano de fraude real
+                    ps.setBoolean(11, transaction.isFlaggedFraud()); // 11. Flag booleano de suspeita de fraude
+
+                    // addBatch(): Adiciona o conjunto atual de parâmetros ao buffer de comandos em memória do PreparedStatement,
+                    // sem enviá-lo imediatamente pela rede ao banco de dados.
+                    ps.addBatch();
+                    // Incrementa o contador de registros acumulados
+                    count++;
+
+                    // Operação de módulo (%): Verifica se a quantidade acumulada atingiu o tamanho definido por JDBC_BATCH_SIZE (ex: 1.000).
+                    // Quando count for múltiplo de 1.000 (1000, 2000, 3000...), a condição é verdadeira.
+                    if (count % JDBC_BATCH_SIZE == 0) {
+                        IO.println("Executando batch JDBC...");
+
+                        // executeBatch(): Envia o lote acumulado de 1.000 registros para o MySQL executar de uma única vez.
+                        ps.executeBatch();
+                        // commit(): Confirma e efetiva a persistência duradoura das alterações no banco de dados.
+                        conn.commit();
+                    }
+                }
+
+                // Após o loop, podem ter sobrado registros que não completaram um múltiplo exato de JDBC_BATCH_SIZE
+                // (por exemplo: se a lista tiver 2.500 registros, 2.000 foram enviados no loop e sobraram 500 no buffer).
+                IO.println("Executando batch final JDBC...");
+
+                // Despacha os registros residuais restantes no buffer do PreparedStatement
+                ps.executeBatch();
+                // Confirma a transação final
+                conn.commit();
+                // Restaura o estado de auto-commit da conexão para o valor padrão (true) antes de devolver/fechar
+                conn.setAutoCommit(true);
+
+            } catch (SQLException e) {
+                // Caso ocorra qualquer erro de banco de dados durante o processamento do lote,
+                // realizamos o rollback para reverter as alterações não confirmadas, preservando a consistência dos dados.
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    // Se até mesmo o rollback falhar (ex: conexão perdida abruptamente), relança com explicação
+                    throw new RuntimeException("Erro ao executar rollback", ex);
+                }
+                // Envelopa a SQLException original em RuntimeException informando a falha no salvamento
+                throw new RuntimeException("Erro ao salvar nova transação ", e);
+            }
+
+        } catch (SQLException e) {
+            // Captura falhas de obtenção de conexão com o banco de dados
+            throw new RuntimeException("Erro na conexão comm o BD...", e);
         }
     }
 }

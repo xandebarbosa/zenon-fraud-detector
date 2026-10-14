@@ -4,74 +4,73 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
+/**
+ * Fábrica de conexões com o banco de dados (Padrão <i>Factory</i>).
+ *
+ * <p><b>Propósito e Responsabilidade:</b></p>
+ * Centralizar, encapsular e gerenciar a criação de conexões ativas com o banco de dados relacional MySQL
+ * utilizando a API JDBC (<i>Java Database Connectivity</i>). Esta classe abstrai todos os detalhes técnicos
+ * de infraestrutura — como URL de conexão JDBC, portas de rede, credenciais de acesso e parâmetros do driver —
+ * para que as demais camadas do sistema não precisem conhecer como a conexão física é aberta.
+ *
+ * <p><b>Integração com o Projeto:</b></p>
+ * É utilizada diretamente pelas classes de repositório, como {@link TransactionSQLRepository}, sempre que uma
+ * operação de leitura (SELECT) ou escrita/persistência (INSERT) precisa interagir com a base de dados
+ * {@code zenon_frauds}.
+ *
+ * <p><b>Conceitos Educacionais e de Performance:</b></p>
+ * <ul>
+ *   <li><b>Padrão Factory (Simple Factory):</b> Separa o código que usa o recurso (repositório) do código que
+ *       instancia e configura o recurso (esta fábrica), promovendo baixo acoplamento e facilidade de manutenção.</li>
+ *   <li><b>Parâmetro {@code rewriteBatchedStatements=true}:</b> Configuração essencial do driver MySQL Connector/J.
+ *       Por padrão, o driver envia cada instrução de um lote ({@code batch}) de forma individual para o servidor MySQL.
+ *       Ao habilitar {@code rewriteBatchedStatements=true}, o driver reescreve automaticamente múltiplos comandos
+ *       {@code INSERT INTO tabela VALUES (...)} em um único comando composto:
+ *       {@code INSERT INTO tabela VALUES (...), (...), (...)}. Isso reduz drasticamente o tráfego de rede (round-trips)
+ *       e a quantidade de gravações no log de transações do banco, aumentando a performance de inserção em lote em até dezenas de vezes.</li>
+ *   <li><b>Tradução de Exceções:</b> Converte {@link SQLException} (uma <i>checked exception</i> obrigatória)
+ *       em {@link RuntimeException} (uma <i>unchecked exception</i>), permitindo que erros de infraestrutura
+ *       sejam propagados de forma limpa sem poluir as assinaturas dos métodos chamadores.</li>
+ * </ul>
+ */
 public class ConnectionFactory {
 
+    /**
+     * Construtor padrão da classe {@link ConnectionFactory}.
+     *
+     * <p><b>Nota Didática:</b> Como o método {@link #getConnection()} é estático ({@code static}),
+     * esta classe atua primordialmente como uma classe utilitária/fábrica estática. Em projetos corporativos,
+     * é comum declarar o construtor como {@code private} para prevenir instanciações desnecessárias.</p>
+     */
     public ConnectionFactory() {}
 
+    /**
+     * Estabelece e retorna uma nova conexão física com o banco de dados MySQL via JDBC.
+     *
+     * <p><b>Detalhamento da Conexão:</b></p>
+     * <ul>
+     *   <li><b>Protocolo JDBC:</b> {@code jdbc:mysql://} identifica o driver apropriado registrado no classpath.</li>
+     *   <li><b>Host e Porta:</b> {@code localhost:3307} — a porta 3307 é frequentemente mapeada via Docker para
+     *       evitar conflitos com instâncias locais de MySQL rodando na porta padrão (3306).</li>
+     *   <li><b>Esquema / Base:</b> {@code zenon_frauds} é o banco de dados onde a tabela {@code transactions} reside.</li>
+     *   <li><b>Otimização de Lote:</b> {@code ?rewriteBatchedStatements=true} habilita a reescrita de batches para máximo desempenho.</li>
+     *   <li><b>Credenciais:</b> Usuário {@code "root"} e senha {@code "senha123"}.</li>
+     * </ul>
+     *
+     * @return {@link Connection} objeto que representa a sessão de comunicação aberta com o banco de dados MySQL.
+     * @throws RuntimeException se ocorrer falha na autenticação, banco indisponível ou erro de rede (encapsula {@link SQLException}).
+     */
     public static Connection getConnection() {
         try {
-            return DriverManager.getConnection("jdbc:mysql://localhost:3307/zenon_frauds", "root", "senha123");
+            // DriverManager.getConnection:
+            // Solicita ao gerenciador de drivers JDBC uma conexão ativa para a URL informada com o usuário e senha fornecidos.
+            // O parâmetro 'rewriteBatchedStatements=true' otimiza inserções em lote executadas via PreparedStatement#executeBatch().
+            return DriverManager.getConnection("jdbc:mysql://localhost:3307/zenon_frauds?rewriteBatchedStatements=true", "root", "senha123");
         } catch (SQLException e) {
+            // Captura a exceção checada SQLException (típica de problemas de conexão ou credenciais)
+            // e a relança envelopada em RuntimeException para preservar o stack trace original (e).
             throw new RuntimeException("Erro ao conectar com o Banco de Dados: ",e);
         }
     }
 
-    /*
-    * Configured authentication: Managed by agent
-
-This code implements a simple **Factory Pattern** designed to establish and provide a connection to a MySQL database using the Java Database Connectivity (JDBC) API in [`ConnectionFactory`](file:///home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/src/main/java/br/com/zenon/ConnectionFactory.java).
-
----
-
-### Code Breakdown
-
-#### 1. Constructor
-```java
-public ConnectionFactory() {}
-```
-* **Purpose**: Default public constructor.
-* **Note**: Because [`getConnection()`](file:///home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/src/main/java/br/com/zenon/ConnectionFactory.java) is `static`, this class functions as a utility/factory class. In standard Java practices, constructors for static utility classes are often made `private` to prevent unnecessary instantiation.
-
----
-
-#### 2. Factory Method
-```java
-public static Connection getConnection()
-```
-* **Return Type**: Returns a `java.sql.Connection` object representing an active session with the database.
-* **`static` Keyword**: Allows consumers to call `ConnectionFactory.getConnection()` directly without creating an instance of [`ConnectionFactory`](file:///home/alexandre/Projetos-Pratica-UNIPDS/zenon-fraud-detector/src/main/java/br/com/zenon/ConnectionFactory.java).
-
----
-
-#### 3. Database Connection Details
-```java
-DriverManager.getConnection("jdbc:mysql://localhost:3307/zenon_frauds", "root", "senha123");
-```
-Uses `java.sql.DriverManager` to locate an appropriate JDBC driver and open a connection:
-* **JDBC URL**: `"jdbc:mysql://localhost:3307/zenon_frauds"`
-  * `jdbc:mysql://`: Connects via MySQL driver protocol.
-  * `localhost`: Target database server host.
-  * `3307`: Port number (commonly used when MySQL runs in a Docker container to prevent collision with the default `3306` port).
-  * `zenon_frauds`: Target database/schema name.
-* **Username**: `"root"`
-* **Password**: `"senha123"`
-
----
-
-#### 4. Exception Handling
-```java
-} catch (SQLException e) {
-    throw new RuntimeException("Erro ao conectar com o Banco de Dados: ", e);
-}
-```
-* **Catching `java.sql.SQLException`**: Catches checked database errors (e.g., incorrect credentials, unreachable server, missing database, or wrong port).
-* **Exception Wrapping**: Re-throws the error as an unchecked `java.lang.RuntimeException`, attaching the original exception `e` as the cause to preserve the stack trace.
-* **Benefit**: Callers do not need to explicitly handle or declare `throws SQLException` in their method signatures.
-
----
-
-### Best Practice Considerations
-* **Credentials & Configuration**: Database credentials and URLs are currently hardcoded; moving them to environment variables or an `application.properties` configuration file prevents sensitive data leaks.
-* **Connection Pooling**: `DriverManager.getConnection(...)` opens a new physical connection per call, which is expensive. For production services, a connection pool library such as **HikariCP** is recommended.
-    * */
 }
